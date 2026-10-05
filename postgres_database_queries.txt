@@ -1,0 +1,458 @@
+create database walmart;
+
+
+
+create table users
+(id int,
+name varchar,
+address varchar);
+
+insert into users
+values (1,'uday','nellore'),
+(2,'ramu','hyderabad'),
+(3,'kishore','canada');
+
+select * from employees;
+show all;
+
+alter table users rename to employees;
+
+alter table users
+rename column name to employee_name;
+
+select * from customers;
+
+SELECT datname FROM pg_database;
+SELECT schema_name 
+FROM information_schema.schemata;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- Step 1: Create the physical table schema
+CREATE TABLE subscriptions (
+    user_id INT,
+    status VARCHAR(50),
+    change_date DATE
+);
+
+-- Step 2: Insert the raw operational log records
+INSERT INTO subscriptions (user_id, status, change_date) VALUES
+(1, 'Active', '2026-01-01'),
+(1, 'Paused', '2026-01-15'),
+(1, 'Active', '2026-02-01'),
+(2, 'Active', '2026-01-01'),
+(2, 'Churned', '2026-03-01');
+
+select * from subscriptions;
+
+select 
+	user_id,
+	status,
+	change_date as valid_date,
+	lead(change_date,1,'9999-12-31') over(
+		partition by user_id
+		order by change_date
+		) as valid_to
+from subscriptions;
+
+
+WITH subscriptions AS (
+    SELECT 1 AS user_id, 'Active' AS status, CAST('2026-01-01' AS DATE) AS change_date UNION ALL
+    SELECT 1, 'Paused', CAST('2026-01-15' AS DATE) UNION ALL
+    SELECT 1, 'Active', CAST('2026-02-01' AS DATE) UNION ALL
+    SELECT 2, 'Active', CAST('2026-01-01' AS DATE) UNION ALL
+    SELECT 2, 'Churned', CAST('2026-03-01' AS DATE)
+)
+select * from subscriptions;
+
+
+
+-- Step 1: Create the physical clicks log table
+CREATE TABLE web_clicks (
+    user_id INT,
+    click_time TIMESTAMP
+);
+
+-- Step 2: Ingest sample click sequences
+-- User 1 has a fast burst of clicks, a 45-minute gap (New Session), and another click.
+-- User 2 has clicks spaced closely together (Single Session).
+INSERT INTO web_clicks (user_id, click_time) VALUES
+(1, '2026-09-23 10:00:00'),
+(1, '2026-09-23 10:05:00'),
+(1, '2026-09-23 10:12:00'),
+(1, '2026-09-23 10:57:00'), -- Gap of 45 mins (>30 mins! Should trigger session 2)
+(1, '2026-09-23 11:02:00'),
+(2, '2026-09-23 14:00:00'),
+(2, '2026-09-23 14:15:00');
+
+
+select * from web_clicks;
+
+
+WITH TimeDeltas AS (
+    -- Step 2.1: Look backward to find the timestamp of the previous click
+    SELECT 
+        user_id,
+        click_time,
+        LAG(click_time) OVER (
+            PARTITION BY user_id 
+            ORDER BY click_time
+        ) AS prev_click_time
+    FROM web_clicks
+),
+SessionFlags AS (
+    -- Step 2.2: Evaluate if the gap exceeds 30 minutes. If yes, flag it as a 1.
+    SELECT 
+        user_id,
+        click_time,
+        CASE 
+            WHEN prev_click_time IS NULL THEN 1 -- First click ever starts a session
+            WHEN click_time > prev_click_time + INTERVAL '30' MINUTE THEN 1
+            ELSE 0 
+        END AS is_new_session
+)
+-- Step 2.3: Use a running sum over the flags to increment session boundaries
+SELECT 
+    user_id,
+    click_time,
+    SUM(is_new_session) OVER (
+        PARTITION BY user_id 
+        ORDER BY click_time
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS session_id
+FROM SessionFlags
+ORDER BY user_id, click_time;
+
+
+select current_date as "today's_date";
+
+create table a
+(id int,
+name varchar);
+insert into a
+values (1,'uday'),
+(2,'ram'),
+(3,'srinu'),
+(4,'bhanu');
+
+create table b
+(id int,
+name varchar);
+insert into b
+values (5,'tanu'),
+(6,'renu'),
+(2,'hanu'),
+(3,'srinu'),
+(4,'bhanu');
+
+delete from a
+where id in(
+select id
+from a
+group by id
+having count(*)>1
+order by id);
+
+select * from a;
+
+
+with rownumber as (
+	select *,row_number() over(partition by id order by id) as rownumber
+	from a)
+select id from (select * from rownumber
+where rownumber.rownumber>1);
+
+
+CREATE TABLE Employees_2 (
+    emp_id INT,
+    emp_name VARCHAR(100),
+    join_date DATE
+);
+
+INSERT INTO Employees_2(emp_id, emp_name, join_date)
+VALUES
+(101, 'Rahul', '2026-09-20'),
+(102, 'Priya', '2026-09-10'),
+(103, 'Amit', '2026-08-25'),
+(104, 'Sneha', '2026-07-15'),
+(105, 'Vikas', '2026-09-01');
+
+INSERT INTO Employees_2(emp_id, emp_name, join_date)
+VALUES
+(106, 'Rahul', '2025-08-17'),
+(107, 'Rahul', '2024-11-24');
+
+select *
+from employees_2;
+
+select *
+from employees_2
+where join_date <= date(current_date-30);
+
+select date_truc(year(to_date('31-12-2025','dd-mm-yyyy'))) as extracted_year;
+select current_date;
+
+select *,dayofyear(to_date(join_date)) as year
+from employees_2;
+
+ALTER TABLE employees_2 
+ADD COLUMN salary DECIMAL(10,2);
+UPDATE employees_2
+SET salary = 75000.00;
+
+select * from employees_2;
+
+UPDATE employees_2
+SET emp_name = 'hanu'
+where emp_id=102;
+UPDATE employees_2
+SET salary = 99000
+where emp_id=107;
+
+
+SELECT 
+    extract(year from CAST(join_date AS DATE)) as join_year,
+    COUNT(emp_id) AS total_hires,
+    AVG(salary) AS average_salary,
+    SUM(salary) AS total_payroll
+FROM employees_2
+GROUP BY extract(year from CAST(join_date AS DATE))
+ORDER BY join_year DESC;
+
+
+
+select extract (year from join_date) joined_year,count(*) as total_hires,sum(salary) total_salaries,avg(salary) avg_salaries
+from employees_2
+group by extract (year from join_date);
+
+select * from employees_2;
+
+select sum(salary) total_payroll,avg(salary) avg_salary
+from employees_2
+where extract (year from join_date)=2026;
+
+
+
+with highest_salary_ranking as (
+	select *,rank() over(partition by extract(year from join_date)  order by extract(year from join_date) desc,salary desc) salary_rank
+	from employees_2
+	)
+select extract(year from join_date) "year",emp_name,salary,salary_rank from highest_salary_ranking
+where salary_rank=1
+order by extract(year from join_date);
+
+
+select emp_id,emp_name,extract(year from join_date),max(salary) max_sal
+from employees_2
+group by extract(year from join_date),emp_id,emp_name
+order by extract(year from join_date) desc,max(salary) desc;
+
+
+select emp_id,emp_name,join_date,salary,
+		sum(salary) over(order by emp_name 
+					rows between unbounded preceding and current row) as cumulative_payroll
+from employees_2
+order by emp_name asc,extract(year from join_date) asc,join_date asc;
+
+
+select emp_id,emp_name,join_date,salary, 
+		sum(salary) over(order by join_date rows between unbounded preceding and current row ) cumulative_salary
+from employees_2
+order by join_date;
+
+
+delete from emp_dummy
+where emp_id in (
+select emp_id
+from emp_dummy
+group by emp_id
+having count(*)>1);
+
+select * from emp_dummy;
+
+
+select emp_id,count(*)
+from employees_2
+group by emp_id;
+
+delete from employees_2 a
+using employees_2 b
+where a.emp_id=b.emp_id and a.ctid>b.ctid;
+
+create table emp_dummy as 
+select * from employees_2;
+
+select *,ctid from employees_2;
+
+select * from employees_2;
+
+
+select * from employees_2
+where salary in (
+select salary
+from employees_2
+order by salary desc 
+limit 2)
+order by salary asc 
+limit 1;
+
+
+select *,salary - lag(salary) over(order by join_date asc)  as difference_salary
+from employees_2
+where extract(year from join_date)=2026
+order by join_date asc;
+
+with highsalary as 
+	(select *, dense_rank	() over(order by salary desc) ranking
+	from employees_2)
+select * from highsalary
+order by salary desc;
+
+
+
+
+select * from employees_2;
+
+
+select *, sum(salary) over (order by join_date rows between unbounded preceding and current row) as running_total,
+		round(salary/sum(salary) over(),2)*100 percentage
+from employees_2
+order by join_date asc;
+
+select salary/sum(salary) over()*100 as percentage_salary
+from employees_2
+group by salary;
+
+
+select *
+from employees_2
+where join_date in (
+select max(join_date) from 
+employees_2);
+
+
+select *,
+		case 
+			when salary	<= 80000 then 'low'
+			when salary between 80000 and 90000 then 'medium'
+			when salary >= 90000 then 'high'
+		end as salary_teir
+from employees_2
+order by salary desc;
+
+
+select *
+from employees_2
+where salary in (
+select salary
+from employees_2
+order by salary desc
+limit 3)
+order by salary asc
+limit 1;
+
+
+with highS as 
+	(select *,dense_rank() over(order by salary desc) as high_rank
+	from employees_2)
+select emp_id,emp_name,join_date,salary from highS
+where high_rank =3;	
+
+
+select *
+from employees_2;
+
+
+-- Create the customer visits table
+CREATE TABLE customer_visits (
+    visit_id INT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    visit_date DATE NOT NULL
+);
+
+-- Insert realistic mock data with overlapping visit dates
+INSERT INTO customer_visits (visit_id, customer_id, visit_date) VALUES
+(1, 501, '2026-09-27'),
+(2, 502, '2026-09-28'),  -- Same day
+(3, 503, '2026-09-28'),  -- Same day
+(4, 501, '2026-09-28'),  -- Same day (customer 501 returns on a different day)
+(5, 504, '2026-09-29'),  -- Same day
+(6, 502, '2026-09-29'),  -- Same day (customer 502 returns on a different day)
+(7, 505, '2026-09-30');
+
+
+select * from customer_visits;
+
+select visit_date,count(*),customer_id
+from customer_visits
+group by visit_date,customer_id ;
+
+SELECT 
+    visit_date,
+    COUNT(DISTINCT customer_id) AS unique_customers_count
+FROM customer_visits
+GROUP BY visit_date
+HAVING COUNT(DISTINCT customer_id) > 1
+ORDER BY visit_date DESC;
+
+select ceil(78.23);
+select upper('uday');
+
+
+select *
+	from employees_2
+	where salary in (
+				select salary
+					from employees_2
+					where extract(year from join_date)=2024
+					order by salary desc
+					limit 3)
+	order  by salary asc
+	limit 1;
